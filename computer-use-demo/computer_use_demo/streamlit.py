@@ -251,6 +251,14 @@ def validate_auth(provider: APIProvider, api_key: str | None):
             )
         except DefaultCredentialsError:
             return "Your google cloud credentials are not set up correctly."
+    if provider == APIProvider.OLLAMA:
+        import httpx
+        try:
+            response = httpx.get("http://192.168.1.143/api/version")
+            if response.status_code != 200:
+                return "Cannot connect to Ollama API. Make sure the server is running at 192.168.1.143"
+        except httpx.RequestError:
+            return "Cannot connect to Ollama API. Make sure the server is running at 192.168.1.143"
 
 
 def load_from_storage(filename: str) -> str | None:

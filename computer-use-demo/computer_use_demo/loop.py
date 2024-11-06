@@ -39,12 +39,14 @@ class APIProvider(StrEnum):
     ANTHROPIC = "anthropic"
     BEDROCK = "bedrock"
     VERTEX = "vertex"
+    OLLAMA = "ollama"
 
 
 PROVIDER_TO_DEFAULT_MODEL_NAME: dict[APIProvider, str] = {
     APIProvider.ANTHROPIC: "claude-3-5-sonnet-20241022",
     APIProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
     APIProvider.VERTEX: "claude-3-5-sonnet-v2@20241022",
+    APIProvider.OLLAMA: "llama2",
 }
 
 
@@ -109,6 +111,10 @@ async def sampling_loop(
             client = AnthropicVertex()
         elif provider == APIProvider.BEDROCK:
             client = AnthropicBedrock()
+        elif provider == APIProvider.OLLAMA:
+            from .ollama_client import OllamaClient
+            client = OllamaClient()
+            enable_prompt_caching = False
 
         if enable_prompt_caching:
             betas.append(PROMPT_CACHING_BETA_FLAG)

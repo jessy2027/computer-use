@@ -46,7 +46,7 @@ PROVIDER_TO_DEFAULT_MODEL_NAME: dict[APIProvider, str] = {
     APIProvider.ANTHROPIC: "claude-3-5-sonnet-20241022",
     APIProvider.BEDROCK: "anthropic.claude-3-5-sonnet-20241022-v2:0",
     APIProvider.VERTEX: "claude-3-5-sonnet-v2@20241022",
-    APIProvider.OLLAMA: "llama2",  # Model is already installed
+    APIProvider.OLLAMA: "neural-chat",  # Plus petit et plus efficace pour le computer use
 }
 
 
@@ -113,7 +113,7 @@ async def sampling_loop(
             client = AnthropicBedrock()
         elif provider == APIProvider.OLLAMA:
             from .ollama_client import OllamaClient
-            client = OllamaClient()
+            client = await (OllamaClient().initialize())  # Initialize asynchronously
             enable_prompt_caching = False
 
         if enable_prompt_caching:

@@ -8,9 +8,37 @@ from anthropic.types.beta import BetaMessage
 class OllamaClient:
     """Client for interacting with Ollama API."""
     
-    def __init__(self, base_url: str = "http://192.168.1.143"):
+    SUPPORTED_MODELS = ["llama2", "mistral", "neural-chat"]  # List of supported models
+    
+    def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url
-        self.client = httpx.Client()
+        self.client = httpx.Client(timeout=60.0)  # Increased timeout for model loading
+        
+        # Test connection and list available models
+        try:
+            response = self.client.get(f"{self.base_url}/api/tags")
+            response.raise_for_status()
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to Ollama: {e}")
+            
+    def ensure_model_exists(self, model_name: str) -> None:
+        """Ensure a model exists, downloading it if necessary."""
+        if model_name not in self.SUPPORTED_MODELS:
+            raise ValueError(f"Model {model_name} is not supported. Supported models: {self.SUPPORTED_MODELS}")
+            
+        try:
+            # Check if model exists
+            response = self.client.get(f"{self.base_url}/api/show", params={"name": model_name})
+            if response.status_code == 404:
+                # Model doesn't exist, try to pull it
+                pull_response = self.client.post(
+                    f"{self.base_url}/api/pull",
+                    json={"name": model_name},
+                    timeout=600.0  # 10 minutes timeout for model download
+                )
+                pull_response.raise_for_status()
+        except Exception as e:
+            raise RuntimeError(f"Failed to ensure model {model_name} exists: {e}")
         
     def beta(self):
         return self
@@ -43,7 +71,14 @@ class OllamaClient:
             
         Returns:
             BetaMessage: Response from Ollama API adapted to Anthropic format
+            
+        Raises:
+            ValueError: If the model is not supported
+            RuntimeError: If connection or model loading fails
         """
+        # Ensure model exists and is ready
+        self.ensure_model_exists(model)
+        
         system_prompt = system[0].get("text", "") if system else ""
         
         # Convert messages to Ollama format
@@ -72,14 +107,26 @@ class OllamaClient:
             "stream": False
         }
         
-        # Make request to Ollama API
-        response = self.client.post(
-            f"{self.base_url}/api/chat",
-            json=request_data
-        )
-        
-        # Convert Ollama response to Anthropic format
-        ollama_response = response.json()
+        try:
+            # Make request to Ollama API
+            response = self.client.post(
+                f"{self.base_url}/api/chat",
+                json=request_data
+            )
+            response.raise_for_status()
+            
+            # Convert Ollama response to Anthropic format
+            ollama_response = response.json()
+            
+            if not isinstance(ollama_response, dict) or "message" not in ollama_response:
+                raise ValueError(f"Invalid response format from Ollama: {ollama_response}")
+                
+            content = ollama_response.get("message", {}).get("content", "")
+            if not content:
+                raise ValueError("Empty response from Ollama")
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to get response from Ollama: {e}")
         
         # Create BetaMessage response
         return BetaMessage(

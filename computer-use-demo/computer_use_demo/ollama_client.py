@@ -19,7 +19,7 @@ class OllamaClient:
     
     SUPPORTED_MODELS = ["llama2", "mistral", "neural-chat"]  # List of supported models
     
-    def __init__(self, base_url: str = "http://localhost:11434"):
+    def __init__(self, base_url: str = "http://host.docker.internal:11434"):
         self.base_url = base_url
         # Initialize beta property immediately
         self.beta = self.Beta(self)

@@ -135,7 +135,7 @@ async def sampling_loop(
         # implementation may be able call the SDK directly with:
         # `response = client.messages.create(...)` instead.
         try:
-            raw_response = client.beta.messages.with_raw_response.create(
+            raw_response = client.beta.messages.create(
                 max_tokens=max_tokens,
                 messages=messages,
                 model=model,

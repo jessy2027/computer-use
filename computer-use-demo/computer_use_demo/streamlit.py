@@ -254,7 +254,7 @@ def validate_auth(provider: APIProvider, api_key: str | None):
     if provider == APIProvider.OLLAMA:
         import httpx
         try:
-            response = httpx.get("http://192.168.1.143/api/version")
+            response = httpx.get("http://host.docker.internal:11434/api/version")
             if response.status_code != 200:
                 return "Cannot connect to Ollama API. Make sure the server is running at 192.168.1.143"
         except httpx.RequestError:

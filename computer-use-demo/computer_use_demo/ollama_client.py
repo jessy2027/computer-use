@@ -1,8 +1,9 @@
 """
 Client for interacting with Ollama API.
 """
+import os
 import httpx
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional, Union
 from anthropic.types.beta import BetaMessage
 
 class OllamaResponse:
@@ -19,10 +20,11 @@ class OllamaClient:
     
     SUPPORTED_MODELS = ["llama2", "mistral", "neural-chat"]  # List of supported models
     
-    def __init__(self, base_url: str = "http://host.docker.internal:11434"):
-        self.base_url = base_url
+    def __init__(self, base_url: str = None):
+        self.base_url = base_url or os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
         # Initialize beta property immediately
         self.beta = self.Beta(self)
+        self._initialized = False
         
     async def initialize(self):
         """Initialize the client by testing the connection to Ollama"""
@@ -30,12 +32,23 @@ class OllamaClient:
             async with httpx.AsyncClient() as async_client:
                 response = await async_client.get(f"{self.base_url}/api/tags")
                 response.raise_for_status()
+            self._initialized = True
+            return self
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Ollama: {e}")
-        return self
             
     async def ensure_model_exists(self, model_name: str) -> None:
-        """Ensure a model exists, downloading it if necessary."""
+        """Ensure a model exists, downloading it if necessary.
+        
+        Args:
+            model_name: The name of the model to ensure exists
+            
+        Raises:
+            ValueError: If the model is not supported
+            RuntimeError: If the model cannot be loaded or downloaded
+        """
+        if not self._initialized:
+            await self.initialize()
         if model_name not in self.SUPPORTED_MODELS:
             raise ValueError(f"Model {model_name} is not supported. Supported models: {self.SUPPORTED_MODELS}")
             
@@ -81,19 +94,32 @@ class OllamaClient:
                 
                 Args:
                     max_tokens: Maximum tokens to generate
-                    messages: Chat history
-                    model: Model name to use
-                    system: System messages
-                    tools: Available tools
-                    betas: Beta features to enable
+                    messages: Chat history in the format [{"role": str, "content": str}]
+                    model: Model name to use (must be one of the supported models)
+                    system: System messages in the format [{"text": str}]
+                    tools: List of available tools (currently not used by Ollama)
+                    betas: List of beta features to enable (currently not used by Ollama)
                     
                 Returns:
                     OllamaResponse: Wrapper containing both the HTTP response and parsed BetaMessage
                     
                 Raises:
-                    ValueError: If the model is not supported
+                    ValueError: If the model is not supported or if the input format is invalid
                     RuntimeError: If connection or model loading fails
                 """
+                # Validate input parameters
+                if not messages or not isinstance(messages, list):
+                    raise ValueError("Messages must be a non-empty list")
+                
+                for msg in messages:
+                    if not isinstance(msg, dict) or "role" not in msg or "content" not in msg:
+                        raise ValueError("Each message must be a dict with 'role' and 'content' keys")
+                    if msg["role"] not in ["user", "assistant", "system"]:
+                        raise ValueError(f"Invalid message role: {msg['role']}")
+                
+                if not model:
+                    raise ValueError("Model name is required")
+                
                 # Ensure model exists and is ready
                 await self.client.ensure_model_exists(model)
                 
@@ -127,35 +153,49 @@ class OllamaClient:
                 
                 try:
                     # Make request to Ollama API asynchronously
-                    async with httpx.AsyncClient() as async_client:
-                        http_response = await async_client.post(
-                            f"{self.client.base_url}/api/chat",
-                            json=request_data
-                        )
-                        http_response.raise_for_status()
+                    async with httpx.AsyncClient(timeout=60.0) as async_client:
+                        try:
+                            http_response = await async_client.post(
+                                f"{self.client.base_url}/api/chat",
+                                json=request_data
+                            )
+                            http_response.raise_for_status()
+                        except httpx.TimeoutException as e:
+                            raise RuntimeError(f"Request to Ollama timed out: {e}")
+                        except httpx.RequestError as e:
+                            raise RuntimeError(f"Failed to connect to Ollama: {e}")
+                        except httpx.HTTPStatusError as e:
+                            raise RuntimeError(f"Ollama API returned error {e.response.status_code}: {e.response.text}")
                     
-                        # Convert Ollama response to Anthropic format
-                        ollama_response = http_response.json()
+                        try:
+                            # Convert Ollama response to Anthropic format
+                            ollama_response = http_response.json()
+                        except ValueError as e:
+                            raise ValueError(f"Invalid JSON response from Ollama: {e}")
                     
-                        if not isinstance(ollama_response, dict) or "message" not in ollama_response:
-                            raise ValueError(f"Invalid response format from Ollama: {ollama_response}")
+                        if not isinstance(ollama_response, dict):
+                            raise ValueError(f"Expected dict response, got {type(ollama_response)}")
+                        
+                        if "message" not in ollama_response:
+                            raise ValueError(f"Response missing 'message' field: {ollama_response}")
                         
                         content = ollama_response.get("message", {}).get("content", "")
                         if not content:
-                            raise ValueError("Empty response from Ollama")
+                            raise ValueError("Empty response content from Ollama")
                         
                 except Exception as e:
-                    raise RuntimeError(f"Failed to get response from Ollama: {e}")
+                    if isinstance(e, (ValueError, RuntimeError)):
+                        raise
+                    raise RuntimeError(f"Unexpected error while getting response from Ollama: {e}")
                 
                 # Create BetaMessage response
                 beta_message = BetaMessage(
                     id="msg_" + http_response.headers.get("X-Request-ID", "unknown"),
                     type="message",
                     role="assistant",
-                    content=[{
-                        "type": "text",
-                        "text": ollama_response.get("message", {}).get("content", "")
-                    }],
+                    content=[
+                        {"type": "text", "text": ollama_response["message"]["content"]}
+                    ],
                     model=model,
                     stop_reason="stop_sequence",
                     stop_sequence=None,

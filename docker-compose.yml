@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  computer-use-demo:
+    build:
+      context: ./computer-use-demo
+      args:
+        DISPLAY_NUM: 1
+        HEIGHT: 768
+        WIDTH: 1024
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    ports:
+      - "6080:6080"  # NoVNC port
+      - "8501:8501"  # Streamlit port
+    depends_on:
+      - ollama
+    networks:
+      - computer-use-network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - computer-use-network
+
+networks:
+  computer-use-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
